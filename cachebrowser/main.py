@@ -1,88 +1,32 @@
-from network import ServerRack
-from settings import settings
-from daemon import Daemon
-from gevent import monkey
-import argparse
-import logging
-import sys
-import gevent
-import cli
-import proxy
-import common
+from __future__ import print_function, absolute_import
 
-import api
-import models
-import http
+import mitmproxy
+import mitmproxy.controller
+from mitmproxy.proxy.server import ProxyServer
 
-rack = ServerRack()
+from cachebrowser.bootstrap import initialize_bootstrapper
+from cachebrowser.resolver import Resolver
+from .proxy import ProxyController
+from .log import LogPipe
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(description="CacheBrowser")
-    parser.add_argument('-d', '-daemon', action='store_true', dest='daemon', help="run in daemon mode")
-    parser.add_argument('-s', '-socket', dest='socket', help="cachebrowser socket")
-    parser.add_argument('command', nargs='*', default=None, help='A cachebrowser command to execute and exit')
-    args = parser.parse_args()
-    settings.update_from_args(vars(args))
+from .models import initialize_database
 
 
-def init_logging():
-    root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
+def cdnreaper(args=None):
+    initialize_database('db.sqlite')
+    initialize_bootstrapper()
 
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(message)s')
-    ch.setFormatter(formatter)
-    root.addHandler(ch)
+    config = mitmproxy.proxy.ProxyConfig(port=8080)
+    server = ProxyServer(config)
+    m = ProxyController(server)
+    m.add_pipe(LogPipe())
+    m.add_pipe(Resolver())
+    # m.add_pipe(Scrambler())
+    try:
+        return m.run()
+    except KeyboardInterrupt:
+        m.shutdown()
 
-
-def load_extensions():
-    import extensions
-
-def run_cachebrowser():
-    logging.info("Cachebrowser running...")
-    logging.debug("Waiting for connections...")
-
-    monkey.patch_all()
-
-    rack.add_server('cli', port=5100, handler=cli.CLIHandler)
-    rack.add_server('api', port=5200, handler=api.APIHandler)
-    rack.add_server('proxy', port=8080, handler=proxy.ProxyConnection)
-    rack.add_server('http', port=9005, handler=http.HttpConnection)
-
-    common.context['server_rack'] = rack
-    load_extensions()
-
-    rack.start_all()
-
-    gevent.wait()
-
-
-def run_command(command):
-    class InlineCLIHandler(cli.CLIHandler):
-        def __init__(self):
-            super(InlineCLIHandler, self).__init__(None)
-            self.send = sys.stdout.write
-
-    handler = InlineCLIHandler()
-    handler.handle_command(*command)
-
-
-def main():
-    parse_arguments()
-    init_logging()
-    models.initialize_database(settings['database'])
-
-    command = settings.get('command', None)
-    if command:
-        run_command(command)
-        return
-
-    if settings.get('daemon', False):
-        daemon = Daemon('/tmp/cachebrowser.pid', run_cachebrowser)
-        daemon.start()
-    else:
-        run_cachebrowser()
 
 if __name__ == '__main__':
-    main()
+    cdnreaper()

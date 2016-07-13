@@ -17,21 +17,32 @@ class CacheBrowserSettings(dict):
         else:
             self.data_dir = '/tmp/'
 
-        # Set defaults
-        self['host'] = '0.0.0.0'
-        self['port'] = 9876
-        self['database'] = os.path.join(self.data_dir, 'cachebrowser.db')
+        self.host = '0.0.0.0'
+        self.port = 9876
+        self.database = os.path.join(self.data_dir, 'cachebrowser.db')
 
-    def get_or_error(self, key):
-        if self.get(key, None):
-            return self[key]
-        raise InsufficientParametersException("Missing parameter %s" % key)
+        self.default_bootstrap_sources = [
+            {
+                'type': 'local',
+                'path': 'data/local_bootstrap.yaml'
+            },
+            {
+                'type': 'remote',
+                'url': 'http://localhost:3000/api'
+            }
+        ]
 
-    def update_from_args(self, args):
-        for key in args:
-            val = args[key]
-            if val:
-                self[key] = val
+        # self.bootstrap_sources = []
+        self.bootstrap_sources = self.default_bootstrap_sources
+
+    def read_bootstrap_sources(self, args):
+        local_sources = args.get('local_bootstrap') or []
+        for source in local_sources:
+            self.bootstrap_sources.append({
+                'type': 'local',
+                'path': source
+            })
+
 
 
 settings = CacheBrowserSettings()
